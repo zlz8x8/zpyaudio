@@ -1,0 +1,20 @@
+# zpyaudio 运行依赖（版本按规格书 2.2 的基线环境固定，保证可复现构建）
+# 基线环境：C:\miniconda3\envs\ibase\python.exe (Python 3.13.16)
+
+numpy==2.5.3
+scipy==1.18.1
+PySide6==6.9.3
+pyqtgraph==0.14.0
+sounddevice==0.5.6
+soundfile==0.14.0
+mido==1.3.3
+
+# 测试（NFR-6）
+pytest==9.1.1
+pytest-qt==4.5.0
+
+# 打包（M6，暂未启用）
+# pyinstaller
+# pyinstaller-hooks-contrib
+
+# 解码依赖 ffmpeg 为外部程序，不通过 pip 安装：C:\ffmpeg\bin\ffmpeg.exe

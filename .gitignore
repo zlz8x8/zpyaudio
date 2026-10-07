@@ -1,0 +1,23 @@
+# 运行产物
+config.json
+logs/
+records/
+build/
+.pytest-tmp/
+.pytest_cache/
+pytest-cache-files-*/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 打包产物（M6）
+dist/
+*.spec
+
+# IDE
+.idea/
+.vscode/
