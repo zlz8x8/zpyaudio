@@ -4,6 +4,9 @@
 并在主频读数旁给出**音名**；录制结束后把本次主频时序导出为 CSV。
 打开 **MIDI** 时进入**符号分析**：显示钢琴卷帘，并在主频区域画出音符频率曲线。
 
+Audio analysis software: performs **real-time** analysis of a microphone or audio file, displaying a waveform timing diagram, a spectrum diagram refreshed every 1/16 second, and a dominant-frequency timing diagram, and showing the **note name** next to the dominant-frequency readout; when recording ends, it exports this session's dominant-frequency time series as CSV.
+When **MIDI** is enabled, it switches to **symbolic analysis**: it displays a piano roll and draws the note-frequency curves in the dominant-frequency area.
+
 需求规格书：`docs/requirements.md`（v0.5）。
 
 ## 当前进度
