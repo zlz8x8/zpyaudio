@@ -1,9 +1,9 @@
 # zpyaudio 运行依赖（版本按规格书 2.2 的基线环境固定，保证可复现构建）
-# 基线环境：C:\miniconda3\envs\ibase\python.exe (Python 3.13.16)
+# 基线环境：C:\miniconda3\envs\ibase\python.exe (Python 3.14.7)
 
 numpy==2.5.3
 scipy==1.18.1
-PySide6==6.9.3
+PySide6==6.12.0
 pyqtgraph==0.14.0
 sounddevice==0.5.6
 soundfile==0.14.0

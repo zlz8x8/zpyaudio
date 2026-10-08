@@ -2,10 +2,18 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v0.5（音名 / 主频数据区 / 录制导出增量） |
+| 文档版本 | v0.5.1（v0.5 + 运行环境基线更新与复测记录） |
 | 状态 | 待评审 |
-| 开发环境 | Windows 10/11 x64，Python 3.13.16（conda 环境 `ibase`） |
+| 开发环境 | Windows 10/11 x64，Python 3.14.7（conda 环境 `ibase`） |
 | 相关文档 | `docs/requirements.md`（本文）、`README.md`（已补） |
+
+**v0.5.1 相对 v0.5 的变更（文档级，代码未改动）**：
+
+1. 运行环境基线由 Python 3.13.16 / PySide6 6.9.3 更新为 **Python 3.14.7 / PySide6 6.12.0**（2.1、2.2、`requirements.txt`）。
+2. 新增「新运行环境复测记录」（附录 C 末尾）：333 项单测全绿，GUI（离屏 + 真实桌面）、采集、录制 + CSV 导出、
+   MIDI 自检全部通过。
+3. 记录唯一失败项 **A5（文件播放进度偏差）**：其读数由输出设备/主机 API 决定（MME/蓝牙默认输出下 212–314 ms，
+   WASAPI/WDM-KS 下 12–43 ms），并在 2.1 增加对应环境坑说明与待评审建议。
 
 **v0.5 相对 v0.4 的主要变更（需求变更单）**：
 
@@ -102,13 +110,21 @@
 
 | 项 | 实测值 | 备注 |
 | --- | --- | --- |
-| 解释器 | `C:\miniconda3\envs\ibase\python.exe` = **Python 3.13.16** | 基线环境 |
-| 已安装 | numpy 2.5.3、scipy 1.18.1、PySide6 6.9.3、pyqtgraph 0.14.0 | 直接可用 |
+| 解释器 | `C:\miniconda3\envs\ibase\python.exe` = **Python 3.14.7**（Anaconda 打包版，MSC v.1942 x64） | 基线环境（2026-10-08 由 3.13.16 升级） |
+| 已安装 | numpy 2.5.3、scipy 1.18.1、PySide6 6.12.0、pyqtgraph 0.14.0 | 直接可用 |
+| 音频 I/O | sounddevice 0.5.6、soundfile 0.14.0 | Windows wheel 自带 PortAudio / libsndfile |
+| MIDI / 测试 | mido 1.3.3、pytest 9.1.1 | 直接可用 |
 | ffmpeg | `C:\ffmpeg\bin\ffmpeg.exe`，版本 `N-122544-g8966101fa6-20260125` | 已含 libmp3lame / libsoxr |
 | ffprobe | `C:\ffmpeg\bin\ffprobe.exe` | 用于探测时长/采样率/声道 |
 
 > ⚠️ 环境坑（必须处理）
 > `python` 命令当前解析到 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`（应用商店占位符），执行后无输出。文档与脚本一律使用 conda 环境路径或 `conda run -n ibase`。
+
+> ⚠️ 环境坑（2026-10-08 新发现）：**系统默认输出设备会显著影响 A5 的进度偏差读数**。
+> `--file-check` 用「已送出声卡的帧数」对比墙钟，两者之差约等于「输出队列预填 + 输出缓冲延迟」。
+> 实测：WASAPI / WDM-KS 主机 API（缓冲 3–43 ms）偏差 **12–43 ms**（符合 A5 的 < 200 ms）；
+> 若系统默认输出是 **MME**（缓冲 0.09–0.18 s，且消费速率偏慢、源侧出现丢块）或蓝牙耳机，
+> 偏差会到 **0.21–0.36 s** 而判 FAIL。属设备属性，非程序回归；详见附录 C。
 
 ### 2.2 依赖清单
 
@@ -119,9 +135,9 @@
 | DSP | `numpy`、`scipy.signal` | 已装 | FFT、`resample_poly`、`get_window`、`find_peaks` |
 | mp3 等有损格式解码 | `ffmpeg`（外部程序） | 已装 | 本程序不做 mp3 解码 |
 | MIDI 解析 | `mido` | 已装 1.3.3 | **首选**，轻量且维护活跃（M5 使用） |
-| MIDI 高级解析 | `pretty_midi` | 待评估 | 仅当需要 tempo/instrument 细分时才引入；若在 3.13 上安装失败则降级为纯 `mido` 实现 |
+| MIDI 高级解析 | `pretty_midi` | 待评估 | 仅当需要 tempo/instrument 细分时才引入；若在 3.14 上安装失败则降级为纯 `mido` 实现 |
 | 高级音频分析 | `librosa` | **可选** | 体积大、依赖多。仅在需要梅尔谱/chroma/节拍等特性时引入；基础功能不依赖它 |
-| GUI | `PySide6`、`pyqtgraph` | 已装 | 实时绘图只用 pyqtgraph，禁用 matplotlib 实时刷新 |
+| GUI | `PySide6`、`pyqtgraph` | 已装 6.12.0 / 0.14.0 | 实时绘图只用 pyqtgraph，禁用 matplotlib 实时刷新 |
 | 测试 | `pytest`、`pytest-qt` | 已装 9.1.1 / 4.5.0 | GUI 测试使用 `QT_QPA_PLATFORM=offscreen` |
 | 打包 | `pyinstaller` | 待安装 | 需 `pyinstaller-hooks-contrib` 以正确处理 sounddevice/PySide6 |
 
@@ -562,7 +578,7 @@ zpyaudio/
 | A2 | 同上，观察主频时序图 10 s | 读数 1000 ± 5 Hz，标准差 < 5 Hz，无明显倍频跳变 |
 | A3 | 麦克风说话 | 波形随声音变化；频谱形态随元音改变；GUI 无卡顿（拖动窗口流畅） |
 | A4 | 录制 10 s 再回放 | wav 可读、时长误差 < 50 ms、内容与录制时视图一致 ✅ 实测通过 |
-| A5 | 播放 mp3 | 有声音输出，进度显示与实际偏差 < 200 ms，视图同步 ✅ 实测 43 ms |
+| A5 | 播放 mp3 | 有声音输出，进度显示与实际偏差 < 200 ms，视图同步 ✅ 实测 43 ms（低延迟输出设备）；⚠️ 与输出设备强相关：MME / 蓝牙默认输出下实测 212–314 ms，见 2.1 环境坑与附录 C |
 | A6 | 静音输入 | 主频视图不画点（或断开），无随机虚假频率 ✅ 实测通过 |
 | A7 | 打开 MIDI | 钢琴卷帘音符起止正确，C4 显示 261.63 Hz ✅ **实测通过**：`--midi-check` 对 28842 个音符（four-seasons）与 471 个音符（canon）均与 `mido` 的 `note_on` 条数一致；canon 解析时长 **127.195 s**，与 `sync.json` 记录的 127.2 s 吻合；C4 = 261.63 Hz（v0.5 起 `core/notes.py` 已用同一公式） |
 | A8 | 故障注入（拔设备 / 打开损坏文件 / 隐藏 ffmpeg） | 中文提示、程序不崩溃、可回到 IDLE 继续操作 ✅ 实测通过 |
@@ -598,7 +614,11 @@ ffmpeg -hide_banner -f lavfi -i "sine=frequency=1000:duration=10:sample_rate=480
 
 **实施进度（2026-10-05）**：**M0–M4 已完成并通过验收**（244 项单元测试全绿），实测数据见附录 C；
 **M4.1（v0.5 变更）已完成**（音名 / 数据区 / 录制导出 CSV，见附录 C 的 v0.5 记录）；
-M5（MIDI 符号分析）、M6（覆盖率与打包）待开发。
+**M5（MIDI 符号分析）已完成**（333 项单元测试全绿，见附录 C 的 M5 记录）；M6（覆盖率与打包）待开发。
+
+**复测进度（2026-10-08）**：环境升级到 Python 3.14.7 / PySide6 6.12.0 后**代码未改动**，
+333 项单测全绿，GUI / 采集 / 录制 + CSV / MIDI 自检全部通过；唯一失败项为 A5 进度偏差，
+已定位为输出设备（MME / 蓝牙）属性，详见附录 C 末尾的复测记录。
 
 ---
 
@@ -608,7 +628,7 @@ M5（MIDI 符号分析）、M6（覆盖率与打包）待开发。
 | --- | --- | --- |
 | ffmpeg 为外部依赖，用户环境可能缺失 | mp3 无法播放 | 启动时探测 `C:\ffmpeg\bin\ffmpeg.exe` 与 PATH；缺失时给出中文指引并允许在设置中指定路径 |
 | `librosa` 体积大、依赖冲突 | 安装失败、打包臃肿 | 降级为可选依赖，基础功能零依赖 |
-| `pretty_midi` 在 Python 3.13 上兼容性未知 | MIDI 解析受阻 | 首选纯 `mido` 实现，`pretty_midi` 仅作增强 |
+| `pretty_midi` 在 Python 3.14 上兼容性未知 | MIDI 解析受阻 | 首选纯 `mido` 实现，`pretty_midi` 仅作增强 |
 | Δf=11.7 Hz 粗于主频精度要求 | 主频不准 | 谱线抛物线插值 + HPS/YIN 兜底；必要时补零 |
 | 复音/噪声下主频不可信 | 误导用户 | 置信度着色 + 静音门限 + 界面标注算法档位；范围外见 N3 |
 | 音频设备独占、采样率不被支持 | 打开失败 | 打开前用 `check_input_settings` 校验，失败则回退设备默认采样率并提示 |
@@ -674,7 +694,8 @@ C:\miniconda3\envs\ibase\python.exe main.py --self-test --demo-tone 1000 --self-
 
 ## 附录 C：M0–M5 实施记录（实测）
 
-环境：`C:\miniconda3\envs\ibase\python.exe`（Python 3.13.16）、ffmpeg `N-122544-g8966101fa6-20260125`。
+环境：`C:\miniconda3\envs\ibase\python.exe`（Python 3.13.16，2026-10-08 已升级为 3.14.7）、ffmpeg `N-122544-g8966101fa6-20260125`。
+下表为 2026-10-05 在 Python 3.13.16 / PySide6 6.9.3 上的原始记录；新环境的复测见本节末尾。
 
 | 验收项 | 命令 / 用例 | 实测结果 |
 | --- | --- | --- |
@@ -761,4 +782,53 @@ C:\miniconda3\envs\ibase\python.exe main.py --self-test --demo-tone 1000 --self-
 | 数据区上限 2000 行、序列上限 200000 点 | 防止界面与内存无界增长（NFR-3）；超出上限时截断并在日志/导出结果中说明 |
 | 音名的低频"仅供参考"标注 | Δf 粗于低音区半音间距，孤立音名会误导；改为"音名 + 音分 + 置信度"组合展示 |
 | 音名随"主频中值滤波"开关切换口径 | 界面上同一时刻只应有一个主频读数，避免图上与数据区音名不一致 |
+
+**新运行环境复测记录（2026-10-08，Python 3.14.7 / PySide6 6.12.0）**：
+
+环境：`C:\miniconda3\envs\ibase\python.exe` = Python 3.14.7（Anaconda 打包版）、PySide6 6.12.0、
+pyqtgraph 0.14.0、numpy 2.5.3、scipy 1.18.1、sounddevice 0.5.6、soundfile 0.14.0、mido 1.3.3、
+pytest 9.1.1、ffmpeg `N-122544-g8966101fa6-20260125`。**源代码未做任何修改**（`git status` 干净），
+本节为纯复测。
+
+| 验收项 | 命令 / 用例 | 实测结果 |
+| --- | --- | --- |
+| 全量回归 | `python -m pytest`（`QT_QPA_PLATFORM=offscreen`） | **333 passed in 21.7 s**，无警告转错误 |
+| M0 起窗口（离屏） | `python main.py --self-test --self-test-ms 800` | exit 0；主窗口创建并存活 |
+| M0 起窗口（真实桌面） | `python main.py --demo-tone 1000` | 窗口标题 `zpyaudio 音频分析`，`Responding=True`，工作集 248 MB，45 线程；运行 7 s 后正常终止 |
+| M1 合成端到端 | `python main.py --audio-check 3` | 46/47 帧；主频 **1000.18 Hz**（偏差 0.18 Hz）；裸 bin 996.09 Hz；RMS −9.0 dBFS；overrun 0 → **PASS** |
+| M1 真实麦克风 | `python main.py --audio-check 3 --source device` | 45/47 帧；RMS −54.0 dBFS；overrun 0；主频 119.4 Hz `A#2 +42.3¢`（带低频"仅供参考"标注）→ **PASS** |
+| 设备枚举 | `python main.py --list-devices` | 16 个输入设备正常枚举 |
+| A7 MIDI（演示） | `python main.py --midi-check build/demo_midi.mid` | 17 个音符 == `mido note_on` 17；C4 = 261.63 Hz；type 1 / 1 轨 / 120 BPM → **PASS** |
+| A4 + A11 录制导出 | 控制器录制 3 s / 10 s（合成源 / 真实设备），校验 wav + CSV | 合成源 3 s：wav **3.008 s**（与墙钟偏差 8 ms）、CSV 47 行；设备 3 s：wav **2.923 s**、CSV 36 行；设备 10 s：wav **9.899 s**、CSV 135 行（设备录制的 ~0.08–0.10 s 差为输入流启动延时，非速率误差）。CSV 列头与 4.7 一致、UTF-8 BOM、首行 `t_s < 1 s` → **PASS** |
+| A1/A2/A10 界面取证 | `--self-test --demo-tone 1000 --self-test-shot` | 波形（±0.5）、频谱单峰、对数轴主频 1 kHz 直线、右下数据区与进度条均按预期绘制；截图 1528×780，与既有 `images/m4_gui_windows.png` 肉眼一致（32994 vs 32903 字节） |
+| FR-4.2/4.3 界面取证 | `--self-test --demo-midi --self-test-shot` | 钢琴卷帘（音阶阶梯 + 三层和弦）+ 红色符号频率曲线正常，与既有 `images/m5_gui_midi.png` 一致 |
+| A5 文件播放 | `python main.py --file-check <wav/mp3> --file-check-seconds 4` | ❌ **FAIL**：进度偏差 212 / 215 / 314 ms（判据 < 200 ms）；`playback_underruns` 仍为 0，但每次起播记 1 次 PortAudio `output underflow` 状态告警。根因与输出设备有关，见下 |
+
+> 截图说明：离屏（`offscreen`）平台下 Qt 取不到字体库，图上文字一律渲染成方块——这是在旧环境
+> 与仓库中既有截图里都存在的现象，不是本次升级引入的问题；界面文字内容的正确性由
+> `tests/test_gui_smoke.py` / `tests/test_gui_midi.py` 的断言保证。
+
+**A5 偏差的根因定位（诊断脚本 `build/probe_playback.py`，未进仓库）**：
+`--file-check` 用「已送出声卡的帧数 ÷ 采样率」（`Player.position_seconds`）对比墙钟，
+两者之差 ≈ 输出队列预填（`capacity − 2` 块 = 0.13 s）− 队列实际积压 + 输出缓冲延迟。
+在当前机器上把同一文件送不同输出设备实测（源位置与播放位置的稳态差值）：
+
+| 输出设备（host API） | 流延迟 `stream.latency` | 播放位置 − 墙钟 | 源侧丢块 |
+| --- | --- | --- | --- |
+| 5 MME「耳机 (HUAWEI FreeBuds SE 2)」（**系统默认**） | 0.1067 s | **−0.21 ~ −0.35 s** | 10–16 块 |
+| 16 WASAPI「麦克风阵列 (网易虚拟音频设备)」 | 0.0427 s | **+0.024 ~ +0.039 s** | 0 |
+| 17 WASAPI「耳机 (HUAWEI FreeBuds SE 2)」 | 0.0427 s | **+0.012 ~ +0.029 s** | 0 |
+| 23 WDM-KS「Speakers (Realtek)」 | 0.0100 s | **+0.012 ~ +0.037 s** | 0 |
+
+结论：**A5 的偏差读数由输出设备/主机 API 决定，而不是由 Python 3.14 / PySide6 6.12 引起**
+（同一份未改动的代码在 WASAPI / WDM-KS 上为 12–43 ms，与 2026-10-05 记录的 23–43 ms 吻合）。
+当前机器的系统默认输出是 MME 上的蓝牙耳机：MME 缓冲大（0.09–0.18 s）、消费速率比实时约慢 5%
+（表现为源侧持续丢块、积压增长），因此偏差随播放时长增大并越过 200 ms 判据。
+
+**建议（不属本期代码变更，待评审）**：
+
+1. `Player` 允许指定输出设备/主机 API，或默认优先 WASAPI（当前固定用 PortAudio 的默认设备，Windows 上即 MME）；
+2. `--file-check` 把 A5 判据改为与「输出流延迟」比较（或允许按设备延迟放宽阈值），避免把设备属性判成回归；
+3. 起播的 1 次 `output underflow` 状态告警可忽略（`_underruns` 计数为 0，未真正输出静音），
+   或在日志里降级为 DEBUG 并注明"仅起播首帧"。
 

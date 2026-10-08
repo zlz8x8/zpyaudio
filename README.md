@@ -7,7 +7,7 @@
 Audio analysis software: performs **real-time** analysis of a microphone or audio file, displaying a waveform timing diagram, a spectrum diagram refreshed every 1/16 second, and a dominant-frequency timing diagram, and showing the **note name** next to the dominant-frequency readout; when recording ends, it exports this session's dominant-frequency time series as CSV.
 When **MIDI** is enabled, it switches to **symbolic analysis**: it displays a piano roll and draws the note-frequency curves in the dominant-frequency area.
 
-需求规格书：`docs/requirements.md`（v0.5）。
+需求规格书：`docs/requirements.md`（v0.5.1）。
 
 ## 当前进度
 
@@ -41,11 +41,17 @@ C 大调音阶 + C/F/G 三个和弦）。**区域④为钢琴卷帘**（横轴�
 
 | 项 | 值 |
 | --- | --- |
-| 解释器 | `C:\miniconda3\envs\ibase\python.exe`（Python 3.13.16） |
-| 依赖 | 见 `requirements.txt`（numpy / scipy / PySide6 / pyqtgraph / sounddevice / soundfile / mido） |
+| 解释器 | `C:\miniconda3\envs\ibase\python.exe`（Python 3.14.7，Anaconda 打包版） |
+| 依赖 | 见 `requirements.txt`（numpy 2.5.3 / scipy 1.18.1 / PySide6 6.12.0 / pyqtgraph 0.14.0 / sounddevice 0.5.6 / soundfile 0.14.0 / mido 1.3.3） |
 | 外部程序 | `C:\ffmpeg\bin\ffmpeg.exe`（mp3 等有损格式解码；缺失时给出中文指引，wav 不受影响） |
 
 > ⚠️ 直接执行 `python` 会命中 Windows 应用商店占位符，请使用上面的绝对路径，或先 `conda activate ibase`。
+
+> ⚠️ **播放进度判据与输出设备相关**：`--file-check` 的 A5 判据（进度偏差 < 200 ms）用的是"已送出声卡 vs 墙钟"的
+> 差值，其大小约等于输出队列预填 + 输出设备缓冲延迟。用低延迟主机 API（WASAPI / WDM-KS，缓冲 3–43 ms）时实测偏差
+> **12–43 ms**；若系统默认输出落在 **MME**（缓冲约 0.09–0.18 s，且消费速率偏慢）或蓝牙耳机上，实测偏差会到
+> **0.21–0.36 s** 从而判定 FAIL。这是设备/主机 API 的属性，不是程序回归——换默认输出设备或指定低延迟设备即可。
+> 详见 `docs/requirements.md` 附录 C 的「新运行环境复测记录」。
 
 ## 运行
 
@@ -151,7 +157,7 @@ M5 追加：
 ## 测试
 
 ```powershell
-& $py -m pytest                      # 333 项，全绿
+& $py -m pytest                      # 333 项，全绿（Python 3.14.7 / PySide6 6.12.0 复测通过）
 & $py -m pytest tests/test_analyzer.py -v           # A1 / A6 判据
 & $py -m pytest tests/test_notes.py -v              # A10 音名换算
 & $py -m pytest tests/test_pitch_series.py -v       # A11 序列收集与 CSV 格式
