@@ -13,9 +13,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -30,6 +32,9 @@ __all__ = [
     "ResampleRequired",
     "find_ffmpeg",
     "find_ffprobe",
+    "find_ffmpeg_in",
+    "ffmpeg_version",
+    "ffmpeg_search_dirs",
     "probe",
     "open_decoder",
     "LOSSLESS_SUFFIXES",
@@ -44,6 +49,12 @@ LOSSLESS_SUFFIXES = frozenset(
 
 #: 优先搜索的 ffmpeg 目录（规格书 2.1：C:\ffmpeg）
 DEFAULT_FFMPEG_DIRS = (r"C:\ffmpeg\bin", r"C:\ffmpeg")
+
+#: 可用环境变量显式指定 ffmpeg 目录（优先于默认目录与 PATH）
+FFMPEG_ENV_VARS = ("ZPYAUDIO_FFMPEG_DIR", "FFMPEG_DIR", "FFMPEG_HOME")
+
+#: 查询 ``ffmpeg -version`` 的超时（秒）
+VERSION_TIMEOUT_SECONDS = 5.0
 
 #: 每次读取样本数上限（防御异常参数）
 _MAX_READ_FRAMES = 1 << 22
@@ -90,28 +101,139 @@ class Decoder(Protocol):
 
 # --------------------------------------------------------------------- ffmpeg
 def find_ffmpeg(extra_dir: str | Path | None = None) -> Path | None:
-    """定位 ffmpeg 可执行文件；找不到返回 ``None``。"""
+    """定位 ffmpeg 可执行文件；找不到返回 ``None``。
+
+    ``extra_dir`` 可以是**可执行文件**（``…/ffmpeg.exe``）或**所在目录**，
+    它的优先级最高（用户配置优先），其后依次是环境变量、规格书默认目录、
+    常见安装位置，最后是 ``PATH``。
+    """
     return _find_tool("ffmpeg", extra_dir)
 
 
 def find_ffprobe(extra_dir: str | Path | None = None) -> Path | None:
-    """定位 ffprobe 可执行文件；找不到返回 ``None``。"""
+    """定位 ffprobe 可执行文件；找不到返回 ``None``（搜索规则同 :func:`find_ffmpeg`）。"""
     return _find_tool("ffprobe", extra_dir)
 
 
-def _find_tool(name: str, extra_dir: str | Path | None = None) -> Path | None:
+def find_ffmpeg_in(location: str | Path | None) -> Path | None:
+    """**严格模式**：只在 ``location``（可执行文件或所在目录）里查找 ffmpeg。
+
+    与 :func:`find_ffmpeg` 不同，它不回退到默认目录/``PATH``，
+    因此适合校验"用户配置的路径到底有没有 ffmpeg"。
+    """
+    if not location:
+        return None
+    return _find_tool("ffmpeg", location, strict=True)
+
+
+def env_ffmpeg_dirs() -> tuple[Path, ...]:
+    """环境变量指定的候选目录（每次调用重新读取，便于测试注入）。"""
+    dirs: list[Path] = []
+    for name in FFMPEG_ENV_VARS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            dirs.append(Path(value).expanduser())
+    return tuple(dirs)
+
+
+@lru_cache(maxsize=1)
+def platform_ffmpeg_dirs() -> tuple[Path, ...]:
+    """``PATH`` 之外的常见安装位置（本进程内缓存一次）。
+
+    覆盖 winget / chocolatey / scoop / ``Program Files`` 等包管理器布局，
+    非 Windows 平台覆盖各发行版与 Homebrew 的常规 bin 目录。
+    """
+    dirs: list[Path] = []
+
+    def add(candidate: Path | None) -> None:
+        if candidate is None:
+            return
+        candidate = Path(candidate).expanduser()
+        if candidate not in dirs:
+            dirs.append(candidate)
+
+    if os.name == "nt":
+        for variable in ("ProgramFiles", "ProgramFiles(x86)", "ProgramData", "LOCALAPPDATA"):
+            root = os.environ.get(variable)
+            if root:
+                add(Path(root) / "ffmpeg" / "bin")
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            local = Path(local_appdata)
+            add(local / "Programs" / "ffmpeg" / "bin")
+            add(local / "Microsoft" / "WinGet" / "Links")
+            # winget 包目录：…\WinGet\Packages\<包名>\<版本>\bin\ffmpeg.exe
+            packages = local / "Microsoft" / "WinGet" / "Packages"
+            if packages.is_dir():
+                for pattern in ("*ffmpeg*/*/bin", "*ffmpeg*/bin"):
+                    try:
+                        for match in sorted(packages.glob(pattern)):
+                            if match.is_dir():
+                                add(match)
+                    except OSError:  # pragma: no cover - 无权限时忽略
+                        continue
+        add(Path.home() / "scoop" / "shims")
+    else:
+        for directory in (
+            "/usr/bin",
+            "/usr/local/bin",
+            "/opt/homebrew/bin",
+            "/opt/local/bin",
+            "/snap/bin",
+            "/var/lib/flatpak/exports/bin",
+        ):
+            add(Path(directory))
+
+    return tuple(dirs)
+
+
+def ffmpeg_search_dirs() -> tuple[Path, ...]:
+    """按优先级返回候选目录：环境变量 → 规格书默认目录 → 常见安装位置。"""
+    defaults = tuple(Path(item) for item in DEFAULT_FFMPEG_DIRS)
+    return (*env_ffmpeg_dirs(), *defaults, *platform_ffmpeg_dirs())
+
+
+def ffmpeg_version(tool: str | Path | None = None) -> str | None:
+    """返回 ``ffmpeg -version`` 的首行文本（找不到或执行失败返回 ``None``）。"""
+    executable = Path(tool) if tool else find_ffmpeg()
+    if executable is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [str(executable), "-version"],
+            capture_output=True,
+            text=True,
+            timeout=VERSION_TIMEOUT_SECONDS,
+            creationflags=_CREATE_NO_WINDOW,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("无法查询 ffmpeg 版本（%s）：%s", executable, exc)
+        return None
+    output = (completed.stdout or completed.stderr or "").strip()
+    first_line = output.splitlines()[0].strip() if output else ""
+    return first_line or None
+
+
+def _find_tool(name: str, extra_dir: str | Path | None = None, *, strict: bool = False) -> Path | None:
     candidates: list[Path] = []
     if extra_dir:
-        base = Path(extra_dir)
+        base = Path(extra_dir).expanduser()
         if base.is_file():
-            candidates.append(base)
-        else:
-            candidates.extend([base / f"{name}.exe", base / name])
-    for directory in DEFAULT_FFMPEG_DIRS:
-        candidates.extend([Path(directory) / f"{name}.exe", Path(directory) / name])
+            # 直接指定了某个可执行文件：只有名字对得上才采用它，
+            # 否则退回它的**同级目录**（配置 ffmpeg.exe 后仍能找到同目录的 ffprobe）
+            if base.stem.lower() == name.lower():
+                candidates.append(base)
+            base = base.parent
+        candidates.extend([base / f"{name}.exe", base / name])
+    if not strict:
+        for directory in ffmpeg_search_dirs():
+            candidates.extend([directory / f"{name}.exe", directory / name])
     for candidate in candidates:
         if candidate.is_file():
             return candidate
+    if strict:
+        return None
     found = shutil.which(name)
     return Path(found) if found else None
 
@@ -120,7 +242,7 @@ def _require_ffmpeg(extra_dir: str | Path | None = None) -> Path:
     tool = find_ffmpeg(extra_dir)
     if tool is None:
         raise FileNotFoundError(
-            "未找到 ffmpeg：请在设置中指定 ffmpeg 所在目录，"
+            "未找到 ffmpeg：请在「文件 → 设置 ffmpeg 路径…」中指定 ffmpeg 可执行文件或所在目录，"
             r"或将其加入 PATH（例如 C:\ffmpeg\bin）"
         )
     return tool

@@ -248,6 +248,8 @@ def _run_file_check(config: AppConfig, path: Path, seconds: float) -> int:
 
     from zpyaudio.app.controller import AudioController
 
+    # FR-6.4：无界面路径同样先定位 ffmpeg（用户配置优先，其次自动检测）
+    config.resolve_ffmpeg()
     controller = AudioController(config)
     try:
         controller.start_playback(path)

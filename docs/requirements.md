@@ -2,10 +2,23 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v0.5.1（v0.5 + 运行环境基线更新与复测记录） |
+| 文档版本 | v0.5.2（v0.5.1 + ffmpeg 路径可配置与启动自动检测） |
 | 状态 | 待评审 |
 | 开发环境 | Windows 10/11 x64，Python 3.14.7（conda 环境 `ibase`） |
 | 相关文档 | `docs/requirements.md`（本文）、`README.md`（已补） |
+
+**v0.5.2 相对 v0.5.1 的变更（增量功能：ffmpeg 路径设置）**：
+
+1. 新增 **FR-6.4**：ffmpeg 路径可由用户指定，且程序启动时**自动检测**——检测到即写回配置，
+   用户仍可在「文件 → 设置 ffmpeg 路径…」中覆盖（用户指定优先于自动检测结果）。
+2. 配置新增 `ffmpeg_dir`（默认 **空串 = 自动检测**，替代原硬编码 `C:\ffmpeg\bin`）与
+   `ffmpeg_autodetect`（默认开）；旧配置中的 `ffmpeg_dir` 继续有效。
+3. 定位顺序固定为：**用户配置 → 环境变量（`ZPYAUDIO_FFMPEG_DIR` / `FFMPEG_DIR` / `FFMPEG_HOME`）
+   → `C:\ffmpeg\bin` → 常见安装位置（winget / chocolatey / scoop / Program Files 等）→ `PATH`**。
+4. 新增验收项 **A13**，新增 `gui/settings_dialog.py`，7.2 菜单栏、7.3 日志字段同步更新。
+5. **M6 打包**：新增 `packaging/`（PyInstaller spec + 版本资源 + 构建/预检/验证脚本），
+   产出 Windows x64 便携版 `zpyaudio-0.1.0-win.amd64-portable`（onedir 文件夹、免安装、
+   **不含 ffmpeg**、235.2 MB），`app/config.py` 增加 `resolve_project_root()` 以支持便携路径。
 
 **v0.5.1 相对 v0.5 的变更（文档级，代码未改动）**：
 
@@ -114,8 +127,8 @@
 | 已安装 | numpy 2.5.3、scipy 1.18.1、PySide6 6.12.0、pyqtgraph 0.14.0 | 直接可用 |
 | 音频 I/O | sounddevice 0.5.6、soundfile 0.14.0 | Windows wheel 自带 PortAudio / libsndfile |
 | MIDI / 测试 | mido 1.3.3、pytest 9.1.1 | 直接可用 |
-| ffmpeg | `C:\ffmpeg\bin\ffmpeg.exe`，版本 `N-122544-g8966101fa6-20260125` | 已含 libmp3lame / libsoxr |
-| ffprobe | `C:\ffmpeg\bin\ffprobe.exe` | 用于探测时长/采样率/声道 |
+| ffmpeg | `C:\ffmpeg\bin\ffmpeg.exe`，版本 `N-122544-g8966101fa6-20260125` | 已含 libmp3lame / libsoxr；路径可由用户配置（FR-6.4） |
+| ffprobe | `C:\ffmpeg\bin\ffprobe.exe` | 用于探测时长/采样率/声道；与 ffmpeg 同级目录自动配对 |
 
 > ⚠️ 环境坑（必须处理）
 > `python` 命令当前解析到 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`（应用商店占位符），执行后无输出。文档与脚本一律使用 conda 环境路径或 `conda run -n ibase`。
@@ -218,6 +231,7 @@
 | FR-6.1 | 记忆上次使用的设备、FFT 长度、窗函数、视图时间窗 | 重启后自动恢复 |
 | FR-6.2 | 配置写入 `./config.json`，缺失或损坏时回退默认值 | 删除文件后程序正常启动 |
 | FR-6.3 | 提供"恢复默认设置" | 一键复位 |
+| FR-6.4 | ffmpeg 路径可配置：启动时自动检测（环境变量 → 默认目录 → 常见安装位置 → `PATH`），检测到即写回 `ffmpeg_dir`；用户也可在「文件 → 设置 ffmpeg 路径…」中指定**可执行文件或所在目录**，用户指定**优先**于自动检测结果；可关闭自动检测以固定路径 | 1) 删除配置中的 `ffmpeg_dir` 后启动，日志出现"已自动检测到 ffmpeg"且配置被写回；2) 指定一个可用路径后启动，日志为"用户指定"且配置**不被改写**；3) 路径失效且自动检测开启时回落到检测结果 |
 
 ---
 
@@ -419,14 +433,14 @@ zpyaudio/
 │  │  ├─ synthetic_source.py   # 合成测试信号（无麦克风环境验证 A1/A6）
 │  │  └─ file_source.py        # wav/mp3 准实时源（预填 + 节拍 + seek + 暂停）
 │  ├─ media/
-│  │  ├─ decoder.py            # soundfile / ffmpeg 子进程 / ffprobe
+│  │  ├─ decoder.py            # soundfile / ffmpeg 子进程 / ffprobe + ffmpeg 定位（[v0.5.2] 多位置探测/版本查询）
 │  │  ├─ recorder.py           # WAV 写盘线程
 │  │  ├─ player.py             # OutputStream 播放线程
 │  │  ├─ midi_loader.py        # [M5] mido → NoteEvent[]
 │  │  └─ midi_render.py        # [M7] FluidSynth 渲染（预留）
 │  ├─ app/
 │  │  ├─ controller.py         # 状态机 + 线程编排（唯一持有状态的地方）
-│  │  ├─ config.py             # 默认参数与读写
+│  │  ├─ config.py             # 默认参数与读写（[v0.5.2] resolve_ffmpeg()）
 │  │  └─ logging_setup.py
 │  └─ gui/
 │     ├─ main_window.py
@@ -435,8 +449,15 @@ zpyaudio/
 │     ├─ pitch_view.py
 │     ├─ pitch_data_view.py    # [v0.5] 主频时序数据输出区（日志右侧，约 1/3 宽）
 │     ├─ pianoroll_view.py
+│     ├─ settings_dialog.py    # [v0.5.2] ffmpeg 路径设置（浏览 / 自动检测 / 版本状态）
 │     ├─ controls.py
 │     └─ log_view.py
+├─ packaging/                    # [M6] 打包（NFR-7）
+│  ├─ zpyaudio.spec              # PyInstaller onedir 规格（含 excludes 与版本资源）
+│  ├─ version_info.txt           # exe 版本资源（0.1.0 / zlz8x8）
+│  ├─ PORTABLE-README.txt        # 复制进产物文件夹的使用说明
+│  ├─ build_portable.ps1         # 一键构建：dist/zpyaudio-<版本>-win.amd64-portable/
+│  └─ verify_portable.ps1        # 一键验证：自检 + 真实桌面启动 + ffmpeg 未打包
 └─ tests/
 ```
 
@@ -503,7 +524,7 @@ zpyaudio/
 | NFR-4 | 健壮性 | 设备不存在/被占用、采样率不支持、文件损坏、ffmpeg 缺失、磁盘满 —— 均给出中文提示且程序不崩溃 | 手工故障注入 |
 | NFR-5 | 可用性 | 全中文界面；日志带毫秒级时间戳；错误有对话框与日志双通道 | 走查 |
 | NFR-6 | 可维护性 | `core`/`media` 单测覆盖关键路径，行覆盖 ≥ 70%；类型注解齐全 | `pytest --cov` |
-| NFR-7 | 可打包 | `PyInstaller --onedir` 可在无 Python 环境的 Windows 上启动 | 干净虚拟机验证 |
+| NFR-7 | 可打包 | `PyInstaller --onedir` 可在无 Python 环境的 Windows 上启动 | 干净虚拟机验证；**本机验证**：exe 自带解释器（`_internal/python314.dll`），把 `PATH` 收窄到 `C:\Windows\system32` 并清空 `PYTHONHOME/PYTHONPATH` 后 `--self-test` 仍 exit 0；产物文本文件里无 conda 路径。**未做**：干净虚拟机（见附录 C 待办） |
 | NFR-8 | 兼容性 | Windows 10/11 x64；高 DPI 下布局不裁切 | 缩放 100%/150% 走查 |
 | NFR-9 | 可观测性 | 支持 `--log-level DEBUG`；运行日志落盘 `logs/zpyaudio_YYYYmmdd_HHMMSS.log` | 走查 |
 
@@ -553,7 +574,8 @@ zpyaudio/
 | 卷帘区（M5） | 钢琴卷帘（pyqtgraph，只读） | **仅打开 MIDI 时显示**（其余情况隐藏且不占高度）；横轴时间、纵轴音高，左轴按音名标注刻度；一根横条 = 一个音符，条长 = 音符时长（FR-4.2） |
 | 底部 | 进度条 + `当前/总时长` 标签 | 播放可点击定位；录制显示不确定态 + 已录时长 |
 | 状态栏 | 当前状态、采样率、电平/主频（含音名）、缓冲 overrun 与播放欠载 | overrun/欠载 > 0 时黄色告警 |
-| 菜单栏 | 文件（打开/监听/录制/停止/退出）、视图（频谱对数轴、主频中值滤波、恢复默认设置）、帮助（关于） | 快捷键：`Ctrl+O` 打开、`F5` 开始、`F6` 录制、`F7` 暂停/继续、`F8` 停止 |
+| 菜单栏 | 文件（打开/监听/录制/停止/**设置 ffmpeg 路径…**/退出）、视图（频谱对数轴、主频中值滤波、恢复默认设置）、帮助（关于） | 快捷键：`Ctrl+O` 打开、`F5` 开始、`F6` 录制、`F7` 暂停/继续、`F8` 停止 |
+| 设置对话框（v0.5.2） | ffmpeg 路径输入框 + 「浏览…」+「自动检测」+「启动时自动检测」勾选 + 状态行 | 状态行给出命中的可执行文件路径与 `ffmpeg -version` 首行；路径写错时报"未找到"（不回显别处检测到的 ffmpeg）；留空 = 自动检测（FR-6.4） |
 
 绘图约束：`pyqtgraph` 的 `setData` 增量更新；曲线对象复用不重建；`setClipToView(True)` + `setDownsampling(auto=True)`；禁止在定时器里 `clear()` 后重建图元。频谱/主频刷新固定 16 Hz，界面重绘 30–60 Hz。
 
@@ -561,7 +583,7 @@ zpyaudio/
 
 | 场景 | 必显字段 |
 | --- | --- |
-| 启动 | 采样率、FFT、窗、主频算法、跳步；频率分辨率 Δf；**音名口径（A4 = 440 Hz）**（v0.5） |
+| 启动 | 采样率、FFT、窗、主频算法、跳步；频率分辨率 Δf；**音名口径（A4 = 440 Hz）**（v0.5）；**ffmpeg 定位结果**（v0.5.2：路径与来源"用户指定/自动检测"，未找到时给出告警与设置入口） |
 | 录制开始 | 开始时间（`YYYY-MM-DD HH:MM:SS.mmm`）、设备名、采样率、声道 |
 | 录制结束 | 结束时间、总时长、保存路径（绝对路径）、文件大小、**主频时序文件路径与行数**（v0.5；未生成时给出原因） |
 | 播放文件 | 文件路径、总时长、采样率、声道、格式 |
@@ -586,6 +608,7 @@ zpyaudio/
 | A10 | 1 kHz 正弦（合成源/文件均可） | 状态栏、主频图标题、数据区同时给出音名 `B5`，音分 `+21.3 ± 0.5`；静音时音名为 `—`（v0.5） |
 | A11 | 录制 10 s 后检查 `records/` | 与 wav 同名的 `.csv` 存在；列头 = 4.7 规定；数据行数 = 有效主频帧数（≈16×时长×有效率，偏差 ≤ 10%）；首行 `t_s < 1.0`；UTF-8 BOM 可被 Excel/pandas 直接读取（v0.5） |
 | A12 | 导出失败注入（records 不可写 / 磁盘满） | 中文提示 + 日志，wav 仍完整可读，程序回到 IDLE（v0.5） |
+| A13 | ffmpeg 路径设置（v0.5.2）：① 清空配置启动；② 指定可用路径后启动；③ 指定失效路径启动；④ 设置对话框输入错误路径 | ① 日志"已自动检测到 ffmpeg：…"且 `ffmpeg_dir` 被写回；② 日志"用户指定"且配置不被改写；③ 回落到检测结果并改写配置；④ 状态行报"未找到"，确定时二次确认 |
 
 测试信号生成（供 A1/A2 使用）：
 
@@ -607,7 +630,8 @@ ffmpeg -hide_banner -f lavfi -i "sine=frequency=1000:duration=10:sample_rate=480
 | M4 | GUI 完善 | 控件清单全量、状态机、日志区、进度条、配置持久化 | 走查 + A8 | 1–2 d | ✅ 完成 |
 | M4.1 | **v0.5 增量**：主频音名、日志右侧数据区、录制导出主频时序 CSV | `core/notes.py`、`core/pitch_series.py`、`gui/pitch_data_view.py`、布局与日志字段 | A10、A11、A12 | 0.5–1 d | ✅ 完成 |
 | M5 | MIDI 符号分析 | `media/midi_loader.py` + `media/midi_render.py`（接口）+ `gui/pianoroll_view.py` + 主频区符号曲线 | A7 | 1 d | ✅ 完成 |
-| M6 | 测试与打包 | 单测覆盖、长时间运行、PyInstaller 打包 | NFR-6、NFR-7、A9 | 1–2 d | ⬜ 待开始 |
+| M5.1 | **v0.5.2 增量**：ffmpeg 路径可配置 + 启动自动检测 | `media/decoder.py`（多位置探测 + 严格校验 + 版本查询）、`app/config.py`（`resolve_ffmpeg()`）、`gui/settings_dialog.py` | A13 | 0.5 d | ✅ 完成 |
+| M6 | 测试与打包 | 单测覆盖、长时间运行、PyInstaller 打包 | NFR-6、NFR-7、A9 | 1–2 d | 🟡 **打包已完成（v0.1.0 便携版）**，覆盖率与 A9 待做 |
 | M7（可选） | MIDI → 音频 | FluidSynth + SoundFont 渲染后进入统一管线 | 波形/频谱在主频上与声学分析一致 | 1–2 d | ⬜ 可选 |
 
 原文档"第 2 步"的验收项"播放 1 kHz 正弦波，频谱峰值在 1000 Hz 附近"已量化为 A1 的容差，避免"附近"不可判定。
@@ -620,13 +644,19 @@ ffmpeg -hide_banner -f lavfi -i "sine=frequency=1000:duration=10:sample_rate=480
 333 项单测全绿，GUI / 采集 / 录制 + CSV / MIDI 自检全部通过；唯一失败项为 A5 进度偏差，
 已定位为输出设备（MME / 蓝牙）属性，详见附录 C 末尾的复测记录。
 
+**实施进度（2026-10-11）**：**M5.1（v0.5.2 增量：ffmpeg 路径可配置 + 启动自动检测）已完成**，
+359 项单测全绿（v0.5.1 的 333 项 + 新增 26 项），见附录 C 的 v0.5.2 记录；
+**M6 的 PyInstaller 打包已完成**（Windows x64 便携版 `zpyaudio-0.1.0-win.amd64-portable`，
+361 项单测全绿，冻结产物自检 7/7 通过，见附录 C 的 M6 打包记录）；
+M6 剩余：覆盖率 ≥ 70%、A9 连续运行、干净虚拟机验证。
+
 ---
 
 ## 十、风险与对策
 
 | 风险 | 影响 | 对策 |
 | --- | --- | --- |
-| ffmpeg 为外部依赖，用户环境可能缺失 | mp3 无法播放 | 启动时探测 `C:\ffmpeg\bin\ffmpeg.exe` 与 PATH；缺失时给出中文指引并允许在设置中指定路径 |
+| ffmpeg 为外部依赖，用户环境可能缺失 | mp3 无法播放 | **（v0.5.2 已实现）**启动时按「用户配置 → 环境变量 → `C:\ffmpeg\bin` → 常见安装位置（winget/chocolatey/scoop）→ `PATH`」自动探测；检测到即写回配置；用户可在「文件 → 设置 ffmpeg 路径…」指定可执行文件或目录并覆盖检测结果；缺失时给出中文指引 |
 | `librosa` 体积大、依赖冲突 | 安装失败、打包臃肿 | 降级为可选依赖，基础功能零依赖 |
 | `pretty_midi` 在 Python 3.14 上兼容性未知 | MIDI 解析受阻 | 首选纯 `mido` 实现，`pretty_midi` 仅作增强 |
 | Δf=11.7 Hz 粗于主频精度要求 | 主频不准 | 谱线抛物线插值 + HPS/YIN 兜底；必要时补零 |
@@ -758,6 +788,62 @@ C:\miniconda3\envs\ibase\python.exe main.py --self-test --demo-tone 1000 --self-
 | `PitchView` 增加符号模式（非新视图） | FR-4.4 要求"复用主频时序图区域"；两种模式互斥并在标题上明确标识，避免与声学主频混淆 |
 | 新增 `--midi-check` / `--demo-midi` / `--self-test-midi` | 把 A7 从"人工看一眼"变成可重复执行的命令；`--demo-midi` 与 `--demo-tone` 同思路（不依赖外部素材） |
 | MIDI 不进状态机，只作"当前文档"挂在控制器上 | MIDI 没有音频、不可播放；任何一次真实采集/播放都会自动清掉它，保证"卷帘只在 MIDI 时出现" |
+
+**v0.5.2（M5.1）实测记录（2026-10-11，Python 3.14.7 / PySide6 6.12.0）**：
+
+| 验收项 | 命令 / 用例 | 实测结果 |
+| --- | --- | --- |
+| 全量回归 | `python -m pytest`（`QT_QPA_PLATFORM=offscreen`） | **359 passed in 21.9 s**（v0.5.1 的 333 项 + 本次新增 26 项） |
+| A13① 自动检测 | `python main.py --config build/test-tmp/ffmpeg-demo/config.json --self-test`（配置为空） | 日志 **`已自动检测到 ffmpeg：C:\ffmpeg\bin\ffmpeg.exe（已写入配置，可在设置中修改）`**，随后启动日志为"ffmpeg：…（mp3/m4a/aac 解码可用）" |
+| A13② 用户指定优先 | `python main.py --self-test`（`config.json` 中 `ffmpeg_dir = C:\ffmpeg\bin`） | 日志 **`ffmpeg：C:\ffmpeg\bin\ffmpeg.exe（用户指定）`**，且**未**触发自动检测、配置未被改写 |
+| A13③ 路径失效回落 | `tests/test_config.py::test_resolve_ffmpeg_recovers_when_configured_path_breaks` | 配置指向已删除的目录时回落到检测结果，并把新路径写回 `ffmpeg_dir` |
+| A13④ 对话框 | `tests/test_gui_settings.py`（10 项）+ 离屏取证 `build/settings_dialog.png`（未进仓库） | 输入可用路径→绿色状态行"✅ 已找到：<path>" + `ffmpeg -version` 首行；输入失效路径→"⚠ 未找到"（不回显别处检测到的 ffmpeg）；「自动检测」按钮回填路径并勾选自动检测；「确定」写回配置并**立即**重新定位（无需重启）；「取消」不改配置 |
+| 定位规则 | `tests/test_decoder.py`（6 项新增） | 环境变量 `ZPYAUDIO_FFMPEG_DIR` 优先级最高；给目录 → 找 `ffmpeg.exe`；给 `ffmpeg.exe` → 同目录 `ffprobe.exe` 也能配对；严格模式（`find_ffmpeg_in`）不回落 `PATH`；`ffmpeg_version()` 读 `-version` 首行，异常返回 `None` |
+| 恢复默认联动 | `tests/test_gui_settings.py::test_restore_defaults_reruns_autodetect` | FR-6.3 复位后 `ffmpeg_dir` 回到"自动检测"并立即重跑检测 |
+
+**v0.5.2 新增差异（均为实现期新增，需要评审确认）**：
+
+| 差异 | 原因 |
+| --- | --- |
+| `ffmpeg_dir` 默认值由 `C:\ffmpeg\bin` 改为**空串** | 硬编码默认值在 ffmpeg 装在别处时既不理用户配置也不检测；空串 = "未指定，交给自动检测"，旧配置里的显式路径继续生效（用户指定优先） |
+| 新增配置项 `ffmpeg_autodetect`（默认开） | "仍可由用户修改"需要一个明确开关：关闭后即便配置路径失效也不改写，避免程序覆盖用户的固定路径 |
+| 新增 `gui/settings_dialog.py` | 原代码只有"请在设置中指定路径"的提示而无设置入口；对话框同时承担"立即验证 + 显示版本"的职责 |
+| 自动检测结果写回 `ffmpeg_dir`（而非只放在内存） | 用户下一次能在设置里看到实际生效的路径并直接修改；也让"路径失效→重新检测"的规则可解释 |
+| 新增 `find_ffmpeg_in()` 严格模式 | 校验用户配置时必须"只看该路径"，否则写错路径会静默命中 `PATH` 里的另一个 ffmpeg，用户以为配置生效了 |
+| 检测覆盖 winget / chocolatey / scoop / `Program Files` 等常见位置 | ffmpeg 不是 Python 依赖，用户安装方式多样；仅靠 `PATH` 覆盖不到 winget 的 Links 与包目录 |
+
+**v0.5.2（M6 打包）实测记录（2026-10-11，Python 3.14.7 / PySide6 6.12.0 / PyInstaller 6.22.3）**：
+
+目标产物：`dist/zpyaudio-0.1.0-win.amd64-portable/`（**onedir 文件夹**，免安装、非安装包、**不含 ffmpeg**）。
+构建：`powershell -ExecutionPolicy Bypass -File packaging\build_portable.ps1`（约 80 s）。
+
+| 验收项 | 命令 / 用例 | 实测结果 |
+| --- | --- | --- |
+| 全量回归 | `python -m pytest` | **361 passed**（v0.5.2 的 359 项 + 打包根目录 2 项） |
+| 产物形态 | `build_portable.ps1` 输出 | `zpyaudio.exe` + `PORTABLE-README.txt` + `_internal/`（87 个顶层条目）；**235.2 MB / 472 个文件** |
+| exe 版本资源 | `(Get-Item zpyaudio.exe).VersionInfo.FileVersion` | `0.1.0`（与 `src/zpyaudio/__init__.py` 单一来源） |
+| 起窗口（冻结） | `verify_portable.ps1` → `--self-test --self-test-ms 1500` | 退出码 **0**，日志 `GUI 自检通过：主窗口已创建并存活` |
+| 采集链路（冻结） | `--audio-check 3` | 退出码 **0**；日志 `累计分析 46 帧，环形缓冲 overrun 0 次` |
+| 设备枚举（冻结） | `--list-devices` | 退出码 **0**（PortAudio DLL 随包） |
+| MIDI（冻结） | `--midi-check build/demo_midi.mid` | 退出码 **0**；日志 `17 个音符 / 1 轨 / 音域 60–74` |
+| 真实桌面（冻结） | `zpyaudio.exe --demo-tone 1000`，6 s 后检查 | 进程存活、`Responding=True`、标题 `zpyaudio 音频分析`（非 offscreen 平台插件正常） |
+| 不依赖系统 Python | 收窄 `PATH=C:\Windows\system32` + 清空 `PYTHONHOME/PYTHONPATH` 后 `--self-test` | 退出码 **0**；文本文件抽样无 conda 路径 |
+| ffmpeg 未打包 | 递归扫描产物 | `ffmpeg/ffprobe` **0 个**；启动日志按 FR-6.4 自动检测到宿主机 `C:\ffmpeg\bin\ffmpeg.exe` |
+| 规格书 exe 体积 | 初版（未做 excludes 控制） | **1746.7 MB** —— 见下方差异 1，修正后 235.2 MB |
+
+**M6 新增差异（均为实现期新增，需要评审确认）**：
+
+| 差异 | 原因 |
+| --- | --- |
+| 新增 `packaging/`（spec + 版本资源 + 构建/验证脚本 + 便携版说明） | NFR-7 需要一个可重复执行的构建与验证入口，而不是"手工敲 pyinstaller 命令" |
+| `app/config.py` 新增 `resolve_project_root()`：`sys.frozen` 时以 **exe 所在目录**为根 | 否则便携版的 `config.json`/`logs`/`records` 会写进包内 `_internal`（临时/只读风险）；现在整folder拷贝即可用，符合"便携"定位 |
+| spec 显式排除 pyqtgraph 的**可选依赖链**（matplotlib → pandas → numba/cupy/IPython…） | conda 环境里这些包真实存在，不排除产物 **1.7 GB**；本程序只用 pyqtgraph 的绘图控件，与这些后端无关 |
+| spec 按"产物里有哪个 `.pyd` 就补对应 DLL"补齐 conda 的 C 运行时 DLL | conda 的依赖 DLL 在 `<env>\Library\bin`，不在 Windows 默认搜索路径，PyInstaller 解析不到：产物有 `_ctypes.pyd` 却无 `ffi-8.dll` → 冻结后 `import ctypes` 失败 → scipy 报 broken → 程序起不来 |
+| 新增 `packaging/check_excludes.py`（改 excludes 前的秒级预检） | 排除过头的症状只在冻结后出现，且窗口版崩溃只有弹窗没有 traceback；用 import hook 在源码环境复现可把排错成本从"每次 80 s 重打包"降到几秒 |
+| 打包脚本用 UTF-8 **BOM** 保存 | Windows PowerShell 5.1 按 ANSI 解析无 BOM 的 `.ps1`，中文注释会导致脚本解析失败（实测报 `Unexpected token`） |
+| `verify_portable.ps1` 用 `cmd.exe /c` 而非 `Start-Process -Wait` 取退出码 | GUI 子系统程序会让 `Process.WaitForExit()` 一直挂住（实测两次超时） |
+
+**待办（M6 未完成部分）**：干净虚拟机验证（NFR-7 的原始判据）、单测覆盖率 ≥ 70%（NFR-6，需 `pytest-cov`）、A9 连续运行 30 min。
 
 **实现相对本规格书的差异（均为实现期新增，需要评审确认）**：
 

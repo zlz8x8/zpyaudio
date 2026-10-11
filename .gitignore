@@ -16,7 +16,9 @@ venv/
 
 # 打包产物（M6）
 dist/
+build/pyinstaller/
 *.spec
+!packaging/*.spec
 
 # IDE
 .idea/

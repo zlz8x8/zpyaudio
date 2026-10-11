@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -22,12 +23,27 @@ __all__ = [
     "BLOCK_SIZES",
     "load_config",
     "save_config",
+    "resolve_project_root",
 ]
 
 logger = logging.getLogger(__name__)
 
-#: 项目根目录（src/zpyaudio/app/config.py → 上溯三级）
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+def resolve_project_root() -> Path:
+    """返回运行时根目录（配置/日志/录制等相对路径的基准）。
+
+    * 源码运行：仓库根目录（``src/zpyaudio/app/config.py`` 上溯三级）；
+    * PyInstaller 打包（``sys.frozen``）：**可执行文件所在目录**，
+      这样便携版把 ``config.json`` / ``logs`` / ``records`` 都放在 exe 旁边，
+      而不是写进包内的 ``_internal`` 临时目录（NFR-7）。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[3]
+
+
+#: 项目根目录（源码运行 = 仓库根；打包运行 = exe 所在目录）
+PROJECT_ROOT = resolve_project_root()
 
 #: 默认配置文件位置（规格书 FR-6.2：./config.json）
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.json"
@@ -72,7 +88,10 @@ class AppConfig:
     ring_seconds: float = 5.0
     records_dir: str = "records"
     logs_dir: str = "logs"
-    ffmpeg_dir: str = r"C:\ffmpeg\bin"
+    #: ffmpeg 可执行文件或所在目录；空串表示"未指定，交由启动时自动检测"（FR-6.4）
+    ffmpeg_dir: str = ""
+    #: 启动时是否自动检测 ffmpeg（用户手动指定路径后仍可在设置里关闭）
+    ffmpeg_autodetect: bool = True
     record_subtype: str = "PCM_16"
     log_level: str = "INFO"
     _notes: list[str] = field(default_factory=list, repr=False, compare=False)
@@ -105,6 +124,50 @@ class AppConfig:
     def logs_path(self) -> Path:
         """日志输出目录。"""
         return self.resolve_path(self.logs_dir)
+
+    # ---------------------------------------------------------------- ffmpeg
+    def resolve_ffmpeg(self) -> Path | None:
+        """运行时定位 ffmpeg，并把自动检测结果写回 :attr:`ffmpeg_dir`（FR-6.4）。
+
+        规则：
+
+        1. **用户配置优先**：``ffmpeg_dir`` 指向可用的可执行文件（或含它的目录）时直接采用；
+        2. 配置不可用（为空、路径失效）且 :attr:`ffmpeg_autodetect` 为真时，在环境变量、
+           默认目录、常见安装位置与 ``PATH`` 中自动检测；检测到就写回 ``ffmpeg_dir``，
+           下次启动可直接复用，也便于用户在设置里看到实际路径；
+        3. 关闭 :attr:`ffmpeg_autodetect` 时不覆盖用户配置（不指定则保持未找到）。
+
+        Returns:
+            可用的 ffmpeg 可执行文件路径；未找到返回 ``None``。
+        """
+        from zpyaudio.media.decoder import find_ffmpeg, find_ffmpeg_in  # 延迟导入：app 层不硬依赖 media
+
+        configured = self.ffmpeg_dir.strip()
+        if configured:
+            tool = find_ffmpeg_in(configured)
+            if tool is not None:
+                logger.info("ffmpeg：%s（用户指定）", tool)
+                return tool
+            logger.warning("配置的 ffmpeg 路径不可用：%s", configured)
+
+        if not self.ffmpeg_autodetect:
+            logger.warning("已关闭自动检测，不覆盖配置的 ffmpeg 路径，仍有损格式将无法解码")
+            return None
+
+        tool = find_ffmpeg()
+        if tool is None:
+            logger.warning(
+                "未找到 ffmpeg：有损格式（mp3/m4a/aac）将无法解码；"
+                "请在「文件 → 设置 ffmpeg 路径…」中指定，或加入 PATH（例如 %s）",
+                r"C:\ffmpeg\bin",
+            )
+            return None
+        if str(tool) != configured:
+            self.ffmpeg_dir = str(tool)
+            logger.info("已自动检测到 ffmpeg：%s（已写入配置，可在设置中修改）", tool)
+        else:
+            logger.info("ffmpeg：%s", tool)
+        return tool
 
     # ---------------------------------------------------------------- 校验
     def validate(self) -> list[str]:
@@ -160,6 +223,15 @@ class AppConfig:
             self.waveform_autoscale = bool(self.waveform_autoscale)
         if not isinstance(self.pitch_smoothing, bool):
             self.pitch_smoothing = bool(self.pitch_smoothing)
+        if not isinstance(self.ffmpeg_autodetect, bool):
+            self.ffmpeg_autodetect = bool(self.ffmpeg_autodetect)
+        if self.ffmpeg_dir is None:  # 旧配置可能写成 null
+            self.ffmpeg_dir = ""
+        elif not isinstance(self.ffmpeg_dir, str):
+            notes.append(f"ffmpeg_dir={self.ffmpeg_dir!r} 不是路径，已回退为自动检测")
+            self.ffmpeg_dir = ""
+        else:
+            self.ffmpeg_dir = self.ffmpeg_dir.strip()
 
         self._notes = notes
         for note in notes:

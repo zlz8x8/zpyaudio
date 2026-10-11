@@ -117,6 +117,7 @@ def test_find_ffmpeg_locates_bundled_copy() -> None:
 def test_find_ffmpeg_returns_none_when_absent(monkeypatch, work_dir) -> None:
     """模拟 ffmpeg 缺失（A8 故障注入）。"""
     monkeypatch.setattr(decoder_module, "DEFAULT_FFMPEG_DIRS", ())
+    monkeypatch.setattr(decoder_module, "ffmpeg_search_dirs", lambda: ())
     monkeypatch.setattr(decoder_module.shutil, "which", lambda name: None)
 
     assert find_ffmpeg() is None
@@ -128,10 +129,70 @@ def test_open_decoder_reports_missing_ffmpeg(monkeypatch, work_dir) -> None:
     target = work_dir / "fake.mp3"
     target.write_bytes(b"not really mp3")
     monkeypatch.setattr(decoder_module, "DEFAULT_FFMPEG_DIRS", ())
+    monkeypatch.setattr(decoder_module, "ffmpeg_search_dirs", lambda: ())
     monkeypatch.setattr(decoder_module.shutil, "which", lambda name: None)
 
     with pytest.raises(FileNotFoundError, match="未找到 ffmpeg"):
         FfmpegDecoder(target, sample_rate=FS)
+
+
+# ---------------------------------------------------------------- ffmpeg 定位（FR-6.4）
+def _stub_tool(path):
+    """造一个占位可执行文件（只用于定位判断，不执行）。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"stub")
+    return path
+
+
+def test_search_dirs_prioritise_env_var(monkeypatch, work_dir) -> None:
+    monkeypatch.setenv("ZPYAUDIO_FFMPEG_DIR", str(work_dir / "custom-bin"))
+
+    dirs = decoder_module.ffmpeg_search_dirs()
+
+    assert dirs[0] == work_dir / "custom-bin"
+
+
+def test_find_ffmpeg_searches_configured_directory(monkeypatch, work_dir) -> None:
+    monkeypatch.setattr(decoder_module, "ffmpeg_search_dirs", lambda: ())
+    tool = _stub_tool(work_dir / "portable" / "ffmpeg.exe")
+
+    assert find_ffmpeg(work_dir / "portable") == tool
+    # 目录里没有 ffprobe 时不应错误地返回同目录的 ffmpeg（严格模式只看该目录）
+    assert decoder_module._find_tool("ffprobe", work_dir / "portable", strict=True) is None
+
+
+def test_find_ffmpeg_accepts_executable_path_with_ffprobe_sibling(monkeypatch, work_dir) -> None:
+    """用户直接指定 ffmpeg.exe 时，同目录的 ffprobe 也要能找到（FR-6.4）。"""
+    monkeypatch.setattr(decoder_module, "ffmpeg_search_dirs", lambda: ())
+    tool = _stub_tool(work_dir / "portable" / "ffmpeg.exe")
+    probe_tool = _stub_tool(work_dir / "portable" / "ffprobe.exe")
+
+    assert find_ffmpeg(tool) == tool
+    assert decoder_module.find_ffprobe(tool) == probe_tool
+
+
+def test_find_ffmpeg_in_is_strict(monkeypatch, work_dir) -> None:
+    """严格模式只看用户给的位置，不回退到 PATH/默认目录。"""
+    found_dir = work_dir / "found"
+    tool = _stub_tool(found_dir / "ffmpeg.exe")
+    monkeypatch.setattr(decoder_module, "ffmpeg_search_dirs", lambda: (found_dir,))
+
+    assert find_ffmpeg() == tool  # 非严格：目录搜索命中
+    assert decoder_module.find_ffmpeg_in(found_dir) == tool
+    assert decoder_module.find_ffmpeg_in(work_dir / "gone") is None
+    assert decoder_module.find_ffmpeg_in("") is None
+
+
+def test_ffmpeg_version_returns_none_for_unusable_tool(work_dir) -> None:
+    assert decoder_module.ffmpeg_version(work_dir / "nope-ffmpeg.exe") is None
+
+
+@pytest.mark.skipif(find_ffmpeg() is None, reason="未安装 ffmpeg")
+def test_ffmpeg_version_reads_first_line() -> None:
+    version = decoder_module.ffmpeg_version()
+
+    assert version is not None
+    assert version.lower().startswith("ffmpeg version")
 
 
 # ---------------------------------------------------------------- soundfile 路径

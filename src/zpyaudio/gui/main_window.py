@@ -12,6 +12,7 @@ import logging
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -78,6 +79,9 @@ class MainWindow(QMainWindow):
             config, source_factory=source_factory, player_factory=player_factory
         )
         self.controller.add_state_listener(self._on_state_changed)
+        # FR-6.4：启动即定位 ffmpeg——用户配置优先，配置不可用/为空时自动检测并写回配置
+        #: 本次运行实际使用的 ffmpeg 可执行文件（None = 未找到）
+        self.ffmpeg_tool = config.resolve_ffmpeg()
         #: 数据区已消费到的时序点序号（增量刷新用，开始新采集时复位）
         self._series_seen = 0
 
@@ -195,6 +199,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction("开始录制").triggered.connect(self.start_recording)
         file_menu.addAction("停止").triggered.connect(self.stop)
         file_menu.addSeparator()
+        file_menu.addAction("设置 ffmpeg 路径…").triggered.connect(self.open_settings)
+        file_menu.addSeparator()
         file_menu.addAction("退出").triggered.connect(self.close)
 
         view_menu = menu_bar.addMenu("视图(&V)")
@@ -265,6 +271,13 @@ class MainWindow(QMainWindow):
             "，3 点中值滤波开启" if self.config.pitch_smoothing else "（原始主频）",
         )
         logger.info("提示：选择输入设备后点击「开始」；无麦克风时可用 --demo-tone 1000 验证 A1")
+        if self.ffmpeg_tool is not None:
+            logger.info("ffmpeg：%s（mp3/m4a/aac 解码可用）", self.ffmpeg_tool)
+        else:
+            logger.warning(
+                "ffmpeg：未找到，有损格式（mp3/m4a/aac）将无法解码；"
+                "可在「文件 → 设置 ffmpeg 路径…」中指定"
+            )
 
     # ---------------------------------------------------------------- 控制
     def start_monitoring(self) -> None:
@@ -462,6 +475,33 @@ class MainWindow(QMainWindow):
             action.blockSignals(False)
 
     # ---------------------------------------------------------------- 菜单动作
+    def open_settings(self) -> None:
+        """文件 → 设置 ffmpeg 路径…（FR-6.4）。
+
+        打开设置对话框；用户确定后写回配置、**立即**重新定位 ffmpeg（播放文件时即生效，
+        无需重启），并立刻落盘，避免异常退出丢失设置。
+        """
+        from zpyaudio.gui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self.config, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        previous = (self.config.ffmpeg_dir, self.config.ffmpeg_autodetect)
+        self.config.ffmpeg_dir = dialog.ffmpeg_path()
+        self.config.ffmpeg_autodetect = dialog.autodetect_enabled()
+        self.ffmpeg_tool = self.config.resolve_ffmpeg()
+        logger.info(
+            "ffmpeg 设置已更新：路径=%s，启动时自动检测=%s",
+            self.config.ffmpeg_dir or "（自动检测）",
+            "开" if self.config.ffmpeg_autodetect else "关",
+        )
+        changed = previous != (self.config.ffmpeg_dir, self.config.ffmpeg_autodetect)
+        if changed and self._persist_config:
+            try:
+                save_config(self.config)
+            except Exception:
+                logger.exception("保存配置失败")
+
     def restore_defaults(self) -> None:
         """FR-6.3：一键恢复默认设置（先停止当前任务）。"""
         if self.controller.state is not AppState.IDLE:
@@ -486,6 +526,8 @@ class MainWindow(QMainWindow):
         # 恢复默认设置 = 完全复位，MIDI 符号数据也一并清掉（M5）
         self.controller.clear_midi()
         self._reset_pitch_display()
+        # ffmpeg 路径也回到默认（空 = 自动检测），立即重跑一次检测（FR-6.4）
+        self.ffmpeg_tool = self.config.resolve_ffmpeg()
         self._update_status()
         logger.info("已恢复默认设置")
 

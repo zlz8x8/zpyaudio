@@ -13,8 +13,9 @@ mido==1.3.3
 pytest==9.1.1
 pytest-qt==4.5.0
 
-# 打包（M6，暂未启用）
-# pyinstaller
-# pyinstaller-hooks-contrib
+# 打包（M6，NFR-7）：packaging/build_portable.ps1 使用
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
 
 # 解码依赖 ffmpeg 为外部程序，不通过 pip 安装：C:\ffmpeg\bin\ffmpeg.exe
+# 便携版同样**不打包 ffmpeg**，程序启动时自动检测（FR-6.4）
